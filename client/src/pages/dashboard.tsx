@@ -13,7 +13,6 @@ import EmailReviewTable from "@/components/email-review-table";
 import ProcessingModal from "@/components/processing-modal";
 import AIProgressModal from "@/components/ai-progress-modal";
 import EmailPreviewModal from "@/components/email-preview-modal";
-import LearningDashboard from "@/components/learning-dashboard";
 import FolderSelectionModal from "@/components/folder-selection-modal";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -203,9 +202,6 @@ export default function Dashboard() {
         {/* Status Cards */}
         <StatusCards scanData={scanData} />
 
-        {/* Learning Dashboard */}
-        <LearningDashboard userId={userId} />
-
         {/* Action Panel */}
         <div className="bg-card rounded-lg shadow-sm border border-border mb-6 sm:mb-8 animate-fade-in">
           <div className="px-4 sm:px-6 py-4 border-b border-border">
@@ -314,6 +310,7 @@ export default function Dashboard() {
           isOpen={isProcessingModalOpen}
           onClose={() => setIsProcessingModalOpen(false)}
           emailCount={scanData?.emails?.filter((email: any) => email.isSelected && email.hasUnsubscribeLink)?.length || 0}
+          scanId={currentScanId}
         />
 
         <AIProgressModal 

@@ -1,108 +1,131 @@
-import { useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { RotateCw } from "lucide-react";
+import { CheckCircle, XCircle, AlertCircle, RotateCw, ExternalLink } from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
 
 interface ProcessingModalProps {
   isOpen: boolean;
   onClose: () => void;
   emailCount: number;
+  scanId: number | null;
 }
 
-export default function ProcessingModal({ isOpen, onClose, emailCount }: ProcessingModalProps) {
-  const [progress, setProgress] = useState(0);
-  const [currentEmail, setCurrentEmail] = useState(0);
-  const [isProcessing, setIsProcessing] = useState(false);
+export default function ProcessingModal({ isOpen, onClose, emailCount, scanId }: ProcessingModalProps) {
+  const pollingActive = useRef(true);
 
   useEffect(() => {
-    if (isOpen && emailCount > 0) {
-      setIsProcessing(true);
-      setProgress(0);
-      setCurrentEmail(0);
+    pollingActive.current = true;
+    return () => { pollingActive.current = false; };
+  }, [isOpen]);
 
-      const interval = setInterval(() => {
-        setCurrentEmail(prev => {
-          const next = prev + 1;
-          const newProgress = (next / emailCount) * 100;
-          setProgress(newProgress);
-          
-          if (next >= emailCount) {
-            clearInterval(interval);
-            setIsProcessing(false);
-            setTimeout(() => {
-              onClose();
-            }, 2000);
-          }
-          
-          return next;
-        });
-      }, 500); // Process one email every 500ms for demonstration
+  const { data, isLoading } = useQuery({
+    queryKey: ["/api/scan", scanId, "unsubscribe-results"],
+    queryFn: async () => {
+      const response = await apiRequest("GET", `/api/scan/${scanId}/unsubscribe-results`);
+      return response.json();
+    },
+    enabled: isOpen && !!scanId,
+    refetchInterval: (query) => {
+      const data = query.state.data as any;
+      if (!pollingActive.current) return false;
+      if (data?.completed) return false;
+      return 2000;
+    },
+  });
 
-      return () => clearInterval(interval);
-    }
-  }, [isOpen, emailCount, onClose]);
+  const total = data?.total ?? emailCount;
+  const processed = data?.processed ?? 0;
+  const progress = total > 0 ? (processed / total) * 100 : 0;
+  const isCompleted = data?.completed ?? false;
+  const results = data?.results ?? [];
 
-  const handleCancel = () => {
-    setIsProcessing(false);
-    onClose();
+  const statusIcon = (status: string | null) => {
+    if (status === 'success') return <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />;
+    if (status === 'failed') return <XCircle className="h-4 w-4 text-red-500 shrink-0" />;
+    if (status === 'unclear') return <AlertCircle className="h-4 w-4 text-yellow-500 shrink-0" />;
+    return <RotateCw className="h-4 w-4 text-blue-400 animate-spin shrink-0" />;
+  };
+
+  const statusLabel = (status: string | null) => {
+    if (status === 'success') return 'Gelukt';
+    if (status === 'failed') return 'Mislukt';
+    if (status === 'unclear') return 'Onduidelijk';
+    return 'Bezig...';
   };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 animate-scale-in">
-        <DialogHeader className="animate-slide-in">
-          <DialogTitle className="flex items-center justify-center">
-            <div className="flex items-center justify-center h-12 w-12 rounded-full bg-blue-100 dark:bg-blue-900 mb-4 animate-bounce-in">
-              <RotateCw className={`text-blue-600 dark:text-blue-400 text-2xl ${isProcessing ? 'animate-spin' : ''}`} />
-            </div>
+      <DialogContent className="sm:max-w-lg max-h-[80vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <RotateCw className={`h-5 w-5 ${isCompleted ? '' : 'animate-spin text-blue-500'}`} />
+            {isCompleted ? 'Uitschrijven voltooid' : 'Uitschrijven verwerken...'}
           </DialogTitle>
+          <DialogDescription>
+            {isCompleted
+              ? `${data?.successful ?? 0} geslaagd · ${data?.failed ?? 0} mislukt · ${data?.unclear ?? 0} onduidelijk`
+              : `${processed} van ${total} emails verwerkt`}
+          </DialogDescription>
         </DialogHeader>
-        
-        <div className="text-center animate-fade-in">
-          <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-gray-100 mb-2">
-            {isProcessing ? 'Processing Unsubscribes' : 'Processing Complete'}
-          </h3>
-          
-          <div className="mt-2 px-7 py-3">
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-              {isProcessing 
-                ? 'Automatically unsubscribing from selected spam emails...'
-                : 'All unsubscribe requests have been processed!'
-              }
-            </p>
-            
-            <div className="w-full mb-4">
-              <Progress value={progress} className="w-full h-2 bg-gray-200 dark:bg-gray-700" />
+
+        <div className="space-y-4 flex-1 overflow-hidden flex flex-col">
+          <Progress value={progress} className="h-2" />
+
+          {isLoading && results.length === 0 ? (
+            <div className="flex items-center justify-center py-8 text-muted-foreground text-sm">
+              <RotateCw className="h-4 w-4 animate-spin mr-2" />
+              Resultaten ophalen...
             </div>
-            
-            <p className="text-xs text-gray-400 dark:text-gray-500">
-              {isProcessing 
-                ? `Processing ${currentEmail} of ${emailCount} emails`
-                : `Completed ${emailCount} unsubscribe requests`
-              }
-            </p>
-          </div>
-          
-          <div className="mt-4">
-            {isProcessing ? (
-              <Button
-                variant="outline"
-                onClick={handleCancel}
-                className="w-full border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-              >
-                Cancel Processing
-              </Button>
-            ) : (
-              <Button
-                onClick={onClose}
-                className="btn-success w-full transition-all duration-300 hover:scale-105"
-              >
-                Close
-              </Button>
-            )}
-          </div>
+          ) : (
+            <div className="overflow-y-auto flex-1 space-y-2 pr-1">
+              {results.map((email: any) => (
+                <div
+                  key={email.id}
+                  className="flex items-start gap-3 rounded-lg border border-border p-3 text-sm"
+                >
+                  {statusIcon(email.isProcessed ? email.unsubscribeStatus : null)}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium truncate">{email.sender}</span>
+                      <span className={`shrink-0 text-xs font-medium ${
+                        email.unsubscribeStatus === 'success' ? 'text-green-600' :
+                        email.unsubscribeStatus === 'failed' ? 'text-red-600' :
+                        email.unsubscribeStatus === 'unclear' ? 'text-yellow-600' :
+                        'text-blue-500'
+                      }`}>
+                        {statusLabel(email.isProcessed ? email.unsubscribeStatus : null)}
+                      </span>
+                    </div>
+                    <p className="text-muted-foreground truncate">{email.subject}</p>
+                    {email.isProcessed && email.unsubscribeMessage && (
+                      <p className="text-xs text-muted-foreground mt-1">{email.unsubscribeMessage}</p>
+                    )}
+                    {email.unsubscribeUrl && (
+                      <a
+                        href={email.unsubscribeUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs text-blue-500 hover:underline mt-1"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        URL bekijken
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
+
+        {isCompleted && (
+          <Button onClick={onClose} className="mt-2 w-full">
+            Sluiten
+          </Button>
+        )}
       </DialogContent>
     </Dialog>
   );

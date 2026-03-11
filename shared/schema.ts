@@ -41,6 +41,8 @@ export const spamEmails = pgTable("spam_emails", {
   isProcessed: boolean("is_processed").default(false),
   userFeedback: text("user_feedback"), // "spam", "not_spam", "uncertain"
   aiStatus: text("ai_status").default("classified"), // "classified", "error", "timeout"
+  unsubscribeStatus: text("unsubscribe_status"), // "success", "failed", "unclear", null = not attempted
+  unsubscribeMessage: text("unsubscribe_message"), // details about the unsubscribe attempt
   receivedDate: timestamp("received_date"),
   createdAt: timestamp("created_at").defaultNow(),
 });

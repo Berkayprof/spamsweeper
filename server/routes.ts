@@ -737,9 +737,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Start background processing
       processUnsubscribes(selectedEmails).catch(console.error);
 
-      res.json({ message: `Processing ${selectedEmails.length} unsubscribe requests` });
+      res.json({ message: `Processing ${selectedEmails.length} unsubscribe requests`, total: selectedEmails.length });
     } catch (error) {
       res.status(500).json({ message: "Failed to process unsubscribes" });
+    }
+  });
+
+  // Get unsubscribe results for a scan (for polling)
+  app.get("/api/scan/:scanId/unsubscribe-results", async (req, res) => {
+    try {
+      const scanId = parseInt(req.params.scanId);
+      const emails = await storage.getSpamEmailsByScan(scanId);
+      const relevantEmails = emails.filter(email => email.isSelected && email.hasUnsubscribeLink);
+      
+      const results = relevantEmails.map(email => ({
+        id: email.id,
+        sender: email.sender,
+        subject: email.subject,
+        unsubscribeUrl: email.unsubscribeUrl,
+        isProcessed: email.isProcessed,
+        unsubscribeStatus: email.unsubscribeStatus,
+        unsubscribeMessage: email.unsubscribeMessage,
+      }));
+
+      const processed = results.filter(r => r.isProcessed).length;
+      const successful = results.filter(r => r.unsubscribeStatus === 'success').length;
+      const failed = results.filter(r => r.unsubscribeStatus === 'failed').length;
+      const unclear = results.filter(r => r.unsubscribeStatus === 'unclear').length;
+
+      res.json({
+        total: results.length,
+        processed,
+        successful,
+        failed,
+        unclear,
+        completed: processed === results.length,
+        results,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get unsubscribe results" });
     }
   });
 
@@ -925,6 +961,9 @@ async function processUnsubscribes(emails: any[]) {
           ...result
         });
         
+        // Determine status label
+        const statusLabel = result.success ? 'success' : (result.message?.toLowerCase().includes('unclear') ? 'unclear' : 'failed');
+        
         if (result.success) {
           processed++;
           console.log(`✅ Successfully processed unsubscribe for ${email.sender} via ${result.method}`);
@@ -933,7 +972,9 @@ async function processUnsubscribes(emails: any[]) {
         }
         
         await storage.updateSpamEmail(email.id, {
-          isProcessed: true
+          isProcessed: true,
+          unsubscribeStatus: statusLabel,
+          unsubscribeMessage: result.message || null,
         });
       } catch (error) {
         console.error(`Failed to process unsubscribe for email ${email.id}:`, error);
@@ -944,6 +985,11 @@ async function processUnsubscribes(emails: any[]) {
           success: false,
           message: `Error: ${(error as Error).message}`,
           method: 'ERROR'
+        });
+        await storage.updateSpamEmail(email.id, {
+          isProcessed: true,
+          unsubscribeStatus: 'failed',
+          unsubscribeMessage: `Error: ${(error as Error).message}`,
         });
       }
     } else {
